@@ -11,9 +11,9 @@
 #### example:
 ```
 >node parsing_stats.js access.log 5000
-building tree: 1:17.519 (m:ss.mmm)
+building tree: 1.929s
 parsed 580289 rows
-reducing tree: 1:53.688 (m:ss.mmm)
+reducing tree: 20.074s
 72342 : GET /*
 51902 : GET /customer/section/load/?sections=
 26544 : GET /
@@ -31,5 +31,5 @@ reducing tree: 1:53.688 (m:ss.mmm)
 65997 : POST /graphql
 8777 : POST /reclaim/checkout/reload?form_key=*
 6085 : POST /checkout/cart/add/uenc/*/product/*/
-printing tree: 197.193ms
+printing tree: 184.234ms
 ```
