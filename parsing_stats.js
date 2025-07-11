@@ -19,12 +19,7 @@ const lineReader = require("readline").createInterface({
 });
 
 const rootNodes = [];
-
-const fpgNode = {
-  val: undefined,
-  count: 0,
-  childs: [],
-};
+const rootNodesIdx = {};
 
 const sepRegex = new RegExp(/([\/\?&= ])/i);
 
@@ -38,21 +33,29 @@ const readFirstNRows = Infinity;
 lineReader.on("line", function (line) {
   if (rowNum === 0) console.time("building tree");
   if (rowNum < readFirstNRows) {
-    urlM = line.match(URL_REGEX);
+    const urlM = line.match(URL_REGEX);
     if (urlM) {
       const url = urlM[1];
       const els = urlToNodes(url);
-      let rn = rootNodes.find((n) => n.val === els[0]);
-      if (!rn) {
-        rn = { val: els[0], count: 1, childs: [] };
+      let rn;
+      if (rootNodesIdx[els[0]] === undefined) {
+        rn = { val: els[0], count: 1, childs: [], childsIdx: {} };
+        rootNodesIdx[els[0]] = rootNodes.length;
         rootNodes.push(rn);
-      } else rn.count++;
+      } else {
+        rn = rootNodes[rootNodesIdx[els[0]]];
+        rn.count++;
+      }
       els.slice(1).forEach((e) => {
-        let cn = rn.childs.find((n) => n.val === e);
-        if (!cn) {
-          cn = { val: e, count: 1, childs: [] };
+        let cn;
+        if (rn.childsIdx[e] === undefined) {
+          cn = { val: e, count: 1, childs: [], childsIdx: {} };
+          rn.childsIdx[e] = rn.childs.length;
           rn.childs.push(cn);
-        } else cn.count++;
+        } else {
+          cn = rn.childs[rn.childsIdx[e]];
+          cn.count++;
+        }
         rn = cn;
       });
     }
@@ -73,12 +76,8 @@ function outputTree(t, minCount = 0, indent = "") {
 
 function outputChains(t, minCount = 0) {
   const chains = [];
-
   gathersChains(chains, t, minCount);
-  chains.sort((a, b) => b.count - a.count);
-  chains.forEach((c) => console.log(c.count + " : " + c.name));
-  // chains.sort((a, b) => (a.name > b.name ? 1 : b.name > a.name ? -1 : 0));
-  // chains.forEach((c) => console.log(c.name + " : " + c.count));
+  return chains;
 }
 
 function gathersChains(chains, t, minCount = 0, prefix = "") {
@@ -89,19 +88,27 @@ function gathersChains(chains, t, minCount = 0, prefix = "") {
 }
 
 function merge(nodes) {
-  return nodes
-    .reduce((a, c) => {
-      const existing = a.find((e) => e.val === c.val);
+  const mergedNodes = nodes.reduce(
+    (a, c) => {
+      const existing =
+        a.childsIdx[c.val] !== undefined
+          ? a.childs[a.childsIdx[c.val]]
+          : undefined;
       if (existing) {
         existing.count += c.count;
-        if (c.childs.length > 0) existing.childs.push(...c.childs);
-      } else a.push(c);
+        if (c.childs.length > 0) {
+          Object.assign(existing, merge([...existing.childs, ...c.childs]));
+        }
+      } else {
+        a.childsIdx[c.val] = a.childs.length;
+        a.childs.push(c);
+      }
       return a;
-    }, [])
-    .map((n) => {
-      n.childs = merge(n.childs);
-      return n;
-    });
+    },
+    { childs: [], childsIdx: {} }
+  );
+
+  return mergedNodes;
 }
 
 function reduceTree(
@@ -111,7 +118,8 @@ function reduceTree(
   keepMask = undefined // /[\/\?&= ]+/i // keep separators by default
 ) {
   if (t.childs.length >= limit) {
-    const keepingCount = countSum(t.childs) * keepFrequency;
+    const ccSum = countSum(t.childs);
+    const keepingCount = ccSum * keepFrequency;
 
     const [childsToKeep, childsToGroup] = t.childs.reduce(
       ([childsToKeep, childsToGroup], c) => {
@@ -126,12 +134,10 @@ function reduceTree(
       },
       [[], []]
     );
-
-    const ccSum = countSum(t.childs);
     const cc = {
       val: "*",
       count: countSum(childsToGroup),
-      childs: merge(childsToGroup.flatMap((c) => c.childs)),
+      ...merge(childsToGroup.flatMap((c) => c.childs)),
     };
     const debug = false; //t.childs.find((c) => c.val === "1124578");
     if (debug) {
@@ -149,14 +155,13 @@ function reduceTree(
         )
       );
     }
-    t.childs.splice(0);
-    t.childs.push(...childsToKeep);
-    t.childs.push(cc);
+
+    Object.assign(t, merge([...childsToKeep, cc]));
+
     if (debug) {
       console.log(t.childs.map((c) => c.val + " : " + c.count));
       console.log("************************************ ");
     }
-    // outputTree(t);
   }
   t.childs.forEach((c) => reduceTree(c, limit, keepFrequency, keepMask));
 }
@@ -168,7 +173,10 @@ lineReader.on("close", function () {
   rootNodes.forEach((rn) => reduceTree(rn, LIMIT, KEEP_FREQUENCY));
   console.timeEnd("reducing tree");
   console.time("printing tree");
-  // rootNodes.forEach((rn) => outputTree(rn, minCount));
-  rootNodes.forEach((rn) => outputChains(rn, SHOW_FREQ));
+  // rootNodes.forEach((rn) => outputTree(rn, SHOW_FREQ));
+  const chains = rootNodes.flatMap((rn) => outputChains(rn, SHOW_FREQ));
+  chains.sort((a, b) => b.count - a.count);
+  chains.forEach((c) => console.log(c.count + " : " + c.name));
+
   console.timeEnd("printing tree");
 });
